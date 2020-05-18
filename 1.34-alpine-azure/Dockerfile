@@ -7,8 +7,16 @@ RUN set -eux; \
 		nginx \
 		git \
 		php7-fpm \
+		lua5.1 \
+		memcached \
+		composer \
+		php7-session \
 		php7-mcrypt \
+		php7-tokenizer \
+		php7-xmlwriter \
+		php7-simplexml \
 		php7-soap \
+		php7-memcached \
 		php7-openssl \
 		php7-gmp \
 		php7-pdo_odbc \
@@ -18,7 +26,8 @@ RUN set -eux; \
 		php7-zip \
 		php7-mysqli \
 		php7-sqlite3 \
-		php7-apcu \
+		php7-pgsql \
+		php7-pcntl \
 		php7-pdo_pgsql \
 		php7-bcmath \
 		php7-gd \
@@ -37,53 +46,86 @@ RUN set -eux; \
 		php7-gd \
 		php7-mbstring \
 		php7-xml \
+		php7-fileinfo \
 		imagemagick \
 		supervisor \
 		curl \
 	;
 
-# configure nginx
-COPY config/nginx.conf /etc/nginx/nginx.conf
-# Remove default server definition
+# enable Azure SSHd
+RUN apk add openssh \
+		openssh-keygen \
+     && echo "root:Docker!" | chpasswd \
+	 && ssh-keygen -A 
+
+COPY config/sshd_config /etc/ssh
+
+# create a general config directory, web root, and a nginx FastCGI cache location
+RUN mkdir -p /dockerfiles/; \
+	mkdir -p /var/www/html; \
+	mkdir -p /etc/ssh; \
+	mkdir -p /etc/nginx-cache \
+	;
+
+# Remove nginx default server definition
 RUN rm /etc/nginx/conf.d/default.conf
 
-# Configure PHP-FPM
-COPY config/fpm-pool.conf /etc/php7/php-fpm.d/www.conf
-COPY config/php.ini /etc/php7/conf.d/custom.ini
-
-# Configure supervisord
-COPY config/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-
-# doc location
-RUN mkdir -p /var/www/html
+# switch working directory
 WORKDIR /var/www/html
 
-# download mediawiki
+# download mediawiki with azure fixes and with included release extensions
 RUN set -eux; \
-	git clone --single-branch  --branch "azure-friendly-1-34-1" https://github.com/callahm3/mediawiki.git; \
+	git clone --single-branch --branch "azure-friendly-1-34-1" --depth=1 https://github.com/callahm3/mediawiki.git; \
 	cd mediawiki; \
 	git submodule update --init; \
 	cd /var/www/html; \
 	/bin/cp -rf mediawiki/. . ;\
-	rm -rf .git \
+	rm -rf .git ;\
+	rm -rf mediawiki; \
+	rm -rf vendor \
 	;
 
-# expose ports
-EXPOSE 8080
+# copy composer.local.json config (not to be confused with docker-compose) file
+COPY config/composer.local.json /var/www/html/composer.local.json
 
-# change ownership
+# download extra extensions (commonly used extensions for wikipedia modules)
+RUN set -eux; \
+	cd extensions; \
+	git clone --single-branch --branch "REL1_34" --depth=1 https://github.com/wikimedia/mediawiki-extensions-Wikibase.git; \
+	cd mediawiki-extensions-Wikibase; \
+	git submodule update --init --recursive; \
+	cd ..; \
+	git clone --single-branch --branch "REL1_34" --depth=1 https://github.com/wikimedia/mediawiki-extensions-InputBox.git; \
+	cd mediawiki-extensions-InputBox; \
+	git submodule update --init --recursive; \
+	cd ..; \
+	git clone --single-branch --branch "REL1_34" --depth=1 https://github.com/wikimedia/mediawiki-extensions-TemplateData.git; \
+	cd mediawiki-extensions-TemplateData; \
+	git submodule update --init --recursive; \
+	cd .. \
+	;
+
+# have composer associate extensions and install dependencies
+RUN composer install --no-dev
+
+# change ownership to nginx
 RUN chown -R nginx:nginx /var/www/ && \
 	chown -R nginx:nginx /run && \
 	chown -R nginx:nginx /var/lib/nginx && \
-	chown -R nginx:nginx /var/log/nginx
+	chown -R nginx:nginx /var/log/nginx && \
+	chown -R nginx:nginx /etc/nginx-cache
 
-# su
-USER nginx:nginx
+# COPY src/cache_test.php /var/www/html/cache_test.php
 
-RUN ls -la; \
-	ls -la /var/www/html; \
-	ls -la /var/www; \
-	pwd \
-	;
+# COPY src/info.php /var/www/html/info.php
+# Copy entrypoint and config files
+COPY docker-entrypoint.sh /dockerfiles/docker-entrypoint.sh
+COPY config/nginx.conf /etc/nginx/nginx.conf
+COPY config/fpm-pool.conf /etc/php7/php-fpm.d/www.conf
+COPY config/php.ini /etc/php7/conf.d/custom.ini
+COPY config/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# expose web port
+EXPOSE 8080 2222
+
+ENTRYPOINT [ "/dockerfiles/docker-entrypoint.sh" ]

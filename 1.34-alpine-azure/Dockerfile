@@ -5,13 +5,13 @@ RUN set -eux; \
 	apk update; \
 	apk --no-cache add \
 		nginx \
+		pgbouncer \
 		git \
 		php7-fpm \
 		lua5.1 \
 		memcached \
 		composer \
 		php7-session \
-		php7-mcrypt \
 		php7-tokenizer \
 		php7-xmlwriter \
 		php7-simplexml \
@@ -30,7 +30,6 @@ RUN set -eux; \
 		php7-pcntl \
 		php7-pdo_pgsql \
 		php7-bcmath \
-		php7-gd \
 		php7-odbc \
 		php7-pdo_mysql \
 		php7-pdo_sqlite \
@@ -40,13 +39,10 @@ RUN set -eux; \
 		php7-bz2 \
 		php7-iconv \
 		php7-pdo_dblib \
-		php7-curl \
 		php7-ctype \
-		php7-cli \
 		php7-gd \
 		php7-mbstring \
 		php7-xml \
-		php7-fileinfo \
 		imagemagick \
 		supervisor \
 		curl \
@@ -65,6 +61,13 @@ RUN mkdir -p /dockerfiles/; \
 	mkdir -p /var/www/html; \
 	mkdir -p /etc/ssh; \
 	mkdir -p /etc/nginx-cache \
+	mkdir -p /elasticsearch \
+	;
+
+# Download elasticsearch
+RUN cd /elasticsearch; \
+	wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.7.0-linux-x86_64.tar.gz; \
+	tar -xzf elasticsearch-7.7.0-linux-x86_64.tar.gz \
 	;
 
 # Remove nginx default server definition
@@ -102,8 +105,32 @@ RUN set -eux; \
 	git clone --single-branch --branch "REL1_34" --depth=1 https://github.com/wikimedia/mediawiki-extensions-TemplateData.git; \
 	cd mediawiki-extensions-TemplateData; \
 	git submodule update --init --recursive; \
+	cd ..; \
+	git clone --single-branch --branch "REL1_34" --depth=1 https://github.com/wikimedia/mediawiki-extensions-CirrusSearch.git; \
+	cd mediawiki-extensions-CirrusSearch; \
+	git submodule update --init --recursive; \
+	cd ..; \
+	git clone --single-branch --branch "REL1_34" --depth=1 https://github.com/wikimedia/mediawiki-extensions-Cite.git; \
+	cd mediawiki-extensions-Cite; \
+	git submodule update --init --recursive; \
+	cd ..; \
+	git clone --single-branch --branch "REL1_34" --depth=1 https://github.com/wikimedia/mediawiki-extensions-TemplateStyles.git; \
+	cd mediawiki-extensions-TemplateStyles; \
+	git submodule update --init --recursive; \
+	cd ..; \
+	git clone --single-branch --branch "REL1_34" --depth=1 https://github.com/wikimedia/mediawiki-extensions-TemplateWizard.git; \
+	cd mediawiki-extensions-TemplateWizard; \
+	git submodule update --init --recursive; \
+	cd ..; \
+	git clone --single-branch --branch "REL1_34" --depth=1 https://github.com/wikimedia/mediawiki-extensions-WikibaseCirrusSearch.git; \
+	cd mediawiki-extensions-WikibaseCirrusSearch; \
+	git submodule update --init --recursive; \
+	cd ..; \
+	git clone --single-branch --branch "REL1_34" --depth=1 https://github.com/wikimedia/mediawiki-extensions-Elastica.git; \
+	cd mediawiki-extensions-Elastica; \
+	git submodule update --init --recursive; \
 	cd .. \
-	;
+	; 
 
 # have composer associate extensions and install dependencies
 RUN composer install --no-dev
@@ -124,8 +151,10 @@ COPY config/nginx.conf /etc/nginx/nginx.conf
 COPY config/fpm-pool.conf /etc/php7/php-fpm.d/www.conf
 COPY config/php.ini /etc/php7/conf.d/custom.ini
 COPY config/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY config/userlist.txt /etc/pgbouncer/userlist.txt
+COPY config/custom_pgbouncer.ini /etc/pgbouncer/custom_pgbouncer.ini
 
-# expose web port
+# expose web port and ssh port
 EXPOSE 8080 2222
 
 ENTRYPOINT [ "/dockerfiles/docker-entrypoint.sh" ]
